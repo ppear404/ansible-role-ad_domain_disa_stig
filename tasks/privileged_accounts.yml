@@ -1,0 +1,87 @@
+# SPDX-License-Identifier: MIT-0
+---
+- name: Reserve the built-in Administrator account for domain administration
+  ansible.windows.win_powershell:
+    error_action: stop
+    script: "{{ lookup('ansible.builtin.file', role_path ~ '/files/Separate-BuiltinAdministrator.ps1') }}"
+    parameters:
+      Server: "{{ ad_domain_stig_target.result.fqdn }}"
+      DomainSid: "{{ ad_domain_stig_target.result.sid }}"
+      RemovePolicyCreatorMembership: "{{ 'V-243487' not in ad_domain_stig_exceptions }}"
+  when:
+    - "'V-243466' not in ad_domain_stig_exceptions"
+    - "'V-243467' not in ad_domain_stig_exceptions"
+  tags: [V-243466, V-243467, CAT1]
+
+- name: Prohibit delegation of privileged user credentials
+  ansible.windows.win_powershell:
+    error_action: stop
+    script: "{{ lookup('ansible.builtin.file', role_path ~ '/files/Protect-PrivilegedAccounts.ps1') }}"
+    parameters:
+      Server: "{{ ad_domain_stig_target.result.fqdn }}"
+      DomainSid: "{{ ad_domain_stig_target.result.sid }}"
+      AdditionalGroups: "{{ ad_domain_stig_additional_privileged_groups }}"
+  when: "'V-243470' not in ad_domain_stig_exceptions"
+  tags: [V-243470, CAT1]
+
+- name: Enable rolling NTLM secrets for smart-card accounts on supported domains
+  ansible.windows.win_powershell:
+    error_action: stop
+    parameters:
+      Server: "{{ ad_domain_stig_target.result.fqdn }}"
+    script: |
+      [CmdletBinding(SupportsShouldProcess)]
+      param([string]$Server)
+      $domain = Get-ADDomain -Server $Server
+      $Ansible.Changed = $false
+      if ($domain.DomainMode -notin @('Windows2016Domain', 'Windows2025Domain')) {
+          $Ansible.Result = 'Review the periodic NT hash rotation procedure for this functional level.'
+          return
+      }
+      if ($null -eq $domain.PublicKeyRequiredPasswordRolling) {
+          throw 'The AD module did not return PublicKeyRequiredPasswordRolling.'
+      }
+      if (-not $domain.PublicKeyRequiredPasswordRolling) {
+          $Ansible.Changed = $true
+          if (-not $Ansible.CheckMode) {
+              Set-ADDomain -Identity $domain.DistinguishedName -Server $Server -PublicKeyRequiredPasswordRolling $true
+          }
+      }
+  when: "'V-243476' not in ad_domain_stig_exceptions"
+  tags: [V-243476, CAT2]
+
+- name: Add approved personnel administrators to Protected Users
+  ansible.windows.win_powershell:
+    error_action: stop
+    script: "{{ lookup('ansible.builtin.file', role_path ~ '/files/Set-ProtectedUsers.ps1') }}"
+    parameters:
+      Server: "{{ ad_domain_stig_target.result.fqdn }}"
+      DomainSid: "{{ ad_domain_stig_target.result.sid }}"
+      ApprovedUsers: "{{ ad_domain_stig_protected_users }}"
+  when:
+    - "'V-243477' not in ad_domain_stig_exceptions"
+    - ad_domain_stig_protected_users | length > 0
+  tags: [V-243477, CAT2]
+
+- name: Remove unconstrained delegation from non-controller computer accounts
+  ansible.windows.win_powershell:
+    error_action: stop
+    parameters:
+      Server: "{{ ad_domain_stig_target.result.fqdn }}"
+    script: |
+      [CmdletBinding(SupportsShouldProcess)]
+      param([string]$Server)
+      # Exclude writable DCs and RODCs by the DC account flags.
+      $filter = '(&(userAccountControl:1.2.840.113556.1.4.803:=524288)' +
+                '(!(userAccountControl:1.2.840.113556.1.4.803:=8192))' +
+                '(!(userAccountControl:1.2.840.113556.1.4.803:=67108864)))'
+      $computers = @(Get-ADComputer -LDAPFilter $filter -Server $Server)
+      $Ansible.Changed = $computers.Count -gt 0
+      $Ansible.Result = @{ computers = @($computers | ForEach-Object { $_.Name }) }
+      if (-not $Ansible.CheckMode) {
+          foreach ($computer in $computers) {
+              Set-ADAccountControl -Identity $computer -Server $Server -TrustedForDelegation $false
+          }
+      }
+  when: "'V-243478' not in ad_domain_stig_exceptions"
+  tags: [V-243478, CAT2]

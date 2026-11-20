@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: MIT-0
+---
+- name: Apply Active Directory Domain V3R8 to the development PDC
+  hosts: pdc
+  gather_facts: false
+  roles:
+    - role: "{{ playbook_dir | dirname }}"

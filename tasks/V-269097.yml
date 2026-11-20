@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: MIT-0
+---
+- name: Enable success and failure auditing for both Kerberos subcategories
+  ansible.windows.win_audit_policy_system:
+    subcategory: "{{ item }}"
+    audit_type: [success, failure]
+  loop:
+    - Kerberos Authentication Service
+    - Kerberos Service Ticket Operations

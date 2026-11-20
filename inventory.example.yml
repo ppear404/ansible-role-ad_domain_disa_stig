@@ -1,0 +1,11 @@
+---
+all:
+  hosts:
+    pdc:
+      ansible_host: pdc.example.invalid
+      ansible_connection: psrp
+      ansible_psrp_auth: kerberos
+      ansible_psrp_protocol: https
+      # Set both values in your private copy before targeting a lab.
+      ad_domain_stig_dev_domain: ""
+      ad_domain_stig_dev_domain_sid: ""

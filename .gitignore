@@ -1,0 +1,34 @@
+# Local configuration and credentials
+inventory
+inventory.yml
+inventory.yaml
+.vault_pass*
+vault.yml
+vault.yaml
+ansible.cfg
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Local benchmarks, evaluator output, and reviewed evidence
+/.local/
+/files/U_Active_Directory_Domain_V3R8_STIG.zip
+/files/eval*
+/files/cklbs/
+*_AnswerFile.xml
+*.ckl
+*.cklb
+*.log
+
+# Tooling caches and workspace metadata
+__pycache__/
+*.py[cod]
+.ansible/
+.cache/
+.agents/
+.aws/
+.codex/
+AGENTS.md

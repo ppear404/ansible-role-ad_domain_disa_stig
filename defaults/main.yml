@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: MIT-0
+---
+ad_domain_stig_dev_host: pdc
+ad_domain_stig_dev_domain: ""
+ad_domain_stig_dev_domain_sid: ""
+ad_domain_stig_exceptions: []
+# Enter personnel account identities only after testing Kerberos administration.
+ad_domain_stig_protected_users: []
+ad_domain_stig_additional_privileged_groups: []

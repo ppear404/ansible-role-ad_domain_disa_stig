@@ -1,0 +1,89 @@
+# SPDX-License-Identifier: MIT-0
+---
+- name: Collect Evaluate-STIG ADDomain V3R8 evidence from the development PDC
+  hosts: pdc
+  gather_facts: false
+  vars:
+    ad_domain_eval_script: 'C:\Tools\Evaluate-STIG\Evaluate-STIG.ps1'
+    ad_domain_eval_answer_source: "{{ playbook_dir }}/../.local/ADDomain_AnswerFile.xml"
+    ad_domain_eval_use_answers: false
+    ad_domain_eval_controls: []
+    ad_domain_eval_local_results: "{{ playbook_dir }}/../.local/evidence/{{ inventory_hostname }}/"
+  tasks:
+    - name: Verify the development controller
+      ansible.builtin.import_role:
+        name: "{{ playbook_dir | dirname }}"
+        tasks_from: preflight
+
+    - name: Report the verified development controller
+      ansible.builtin.debug:
+        var: ad_domain_stig_target.result
+
+    - name: Create an isolated assessment directory
+      ansible.windows.win_tempfile:
+        state: directory
+        prefix: ad-domain-stig-
+      register: ad_domain_eval_run
+
+    - name: Create an answer directory dedicated to this run
+      ansible.windows.win_file:
+        path: "{{ ad_domain_eval_run.path }}\\answers"
+        state: directory
+
+    - name: Stage the selected answer file when enabled
+      ansible.windows.win_copy:
+        src: "{{ ad_domain_eval_answer_source }}"
+        dest: "{{ ad_domain_eval_run.path }}\\answers\\ADDomain_AnswerFile.xml"
+      when: ad_domain_eval_use_answers | bool
+
+    - name: Run the installed evaluator for ADDomain
+      ansible.windows.win_powershell:
+        error_action: stop
+        parameters:
+          Evaluator: "{{ ad_domain_eval_script }}"
+          RunDirectory: "{{ ad_domain_eval_run.path }}"
+          Controls: "{{ ad_domain_eval_controls }}"
+        script: |
+          param([string]$Evaluator, [string]$RunDirectory, [string[]]$Controls)
+          $Ansible.Changed = $false
+          if (-not (Test-Path -LiteralPath $Evaluator -PathType Leaf)) {
+              throw "Evaluate-STIG 1.2610.1 was not found at $Evaluator."
+          }
+          $scan = @{
+              SelectSTIG = 'ADDomain'
+              Output = @('CKLB')
+              OutputPath = $RunDirectory
+              AFPath = Join-Path $RunDirectory 'answers'
+              AnswerKey = 'DEFAULT'
+          }
+          if ($Controls.Count) { $scan.SelectVuln = $Controls }
+          $global:LASTEXITCODE = 0
+          & $Evaluator @scan
+          if (-not $? -or $LASTEXITCODE -ne 0) {
+              throw 'Evaluate-STIG reported an error.'
+          }
+          $checklists = @(Get-ChildItem -LiteralPath $RunDirectory -Filter '*.cklb' -File -Recurse)
+          if ($checklists.Count -ne 1) {
+              throw "Expected one ADDomain checklist but found $($checklists.Count)."
+          }
+          $checklist = Get-Content -LiteralPath $checklists[0].FullName -Raw | ConvertFrom-Json
+          $stig = @($checklist.stigs | Where-Object stig_id -eq 'Active_Directory_Domain')
+          if ($stig.Count -ne 1 -or $stig[0].version -ne '3' -or $stig[0].release_info -notmatch '^Release: 8\b') {
+              throw 'Evaluate-STIG did not return the Active Directory Domain V3R8 checklist.'
+          }
+          $Ansible.Result = @{
+              path = $checklists[0].FullName
+              statuses = @($stig[0].rules | Select-Object group_id, rule_id, status)
+          }
+      register: ad_domain_eval_assessment
+
+    - name: Fetch the resulting checklist
+      ansible.builtin.fetch:
+        src: "{{ ad_domain_eval_assessment.result.path }}"
+        dest: "{{ ad_domain_eval_local_results }}"
+        flat: true
+      no_log: true
+
+    - name: Report evaluator statuses
+      ansible.builtin.debug:
+        var: ad_domain_eval_assessment.result.statuses

@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT-0
+---
+- name: Verify the development controller
+  ansible.builtin.import_tasks: preflight.yml
+  tags: [always]
+
+- name: Apply privileged directory account controls
+  ansible.builtin.import_tasks: privileged_accounts.yml
+
+- name: Apply domain Kerberos auditing
+  ansible.builtin.import_tasks: V-269097.yml
+  when: "'V-269097' not in ad_domain_stig_exceptions"
+  tags: [V-269097, CAT2]

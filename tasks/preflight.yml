@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: MIT-0
+---
+- name: Verify the selected host is the intended development controller
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname == ad_domain_stig_dev_host
+      - ansible_play_hosts_all == [ad_domain_stig_dev_host]
+      - ad_domain_stig_dev_domain | trim | length > 0
+      - ad_domain_stig_dev_domain_sid is match('^S-1-5-21-[0-9]+-[0-9]+-[0-9]+$')
+    fail_msg: Configure the development target identity in private inventory and select only that host.
+  tags: [always]
+
+- name: Verify controller identity and discover the local AD endpoint
+  ansible.windows.win_powershell:
+    error_action: stop
+    parameters:
+      ControllerName: "{{ ad_domain_stig_dev_host }}"
+      DomainName: "{{ ad_domain_stig_dev_domain }}"
+      DomainSid: "{{ ad_domain_stig_dev_domain_sid }}"
+    script: |
+      param([string]$ControllerName, [string]$DomainName, [string]$DomainSid)
+      $Ansible.Changed = $false
+      Import-Module ActiveDirectory
+      $dc = Get-ADDomainController -Identity $env:COMPUTERNAME -Server localhost
+      $domain = Get-ADDomain -Server localhost
+      if ($dc.HostName -ne "$ControllerName.$DomainName" -or $domain.DNSRoot -ne $DomainName -or
+          $domain.DomainSID.Value -ne $DomainSid -or
+          $domain.PDCEmulator -ne $dc.HostName -or $dc.IsReadOnly) {
+          throw 'The connection does not target the configured writable development PDC.'
+      }
+      $controllers = @(Get-ADDomainController -Filter * -Server localhost)
+      $forest = Get-ADForest -Server localhost
+      if ($controllers.Count -ne 1 -or $forest.Domains.Count -ne 1 -or $domain.Forest -ne $domain.DNSRoot) {
+          throw 'This role is scoped to the isolated, single-controller development root domain.'
+      }
+      $os = Get-CimInstance -ClassName Win32_OperatingSystem
+      $Ansible.Result = @{
+          sid = $domain.DomainSID.Value
+          fqdn = $dc.HostName
+          domain_mode = [string]$domain.DomainMode
+          os = $os.Caption
+          os_version = $os.Version
+      }
+  check_mode: false
+  register: ad_domain_stig_target
+  tags: [always]
